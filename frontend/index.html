@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Generate comprehensive system architecture PDFs from Figma designs">
+    <title>System Architecture Agent</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="background-gradient"></div>
+    
+    <div class="container">
+        <header class="header">
+            <h1 class="title">System Architecture Agent</h1>
+            <p class="subtitle">Transform your Figma designs into comprehensive architecture documentation</p>
+        </header>
+
+        <main class="main-content">
+            <form id="pdfForm" class="form-card">
+                <div class="form-group">
+                    <label for="figmaLink" class="form-label">
+                        <span class="label-text">Figma Link</span>
+                        <span class="label-required">*</span>
+                    </label>
+                    <input 
+                        type="url" 
+                        id="figmaLink" 
+                        name="figmaLink" 
+                        class="form-input"
+                        placeholder="https://www.figma.com/file/..."
+                        required
+                    >
+                    <span class="input-hint">Paste your Figma file URL</span>
+                </div>
+
+                <div class="form-group">
+                    <label for="figmaToken" class="form-label">
+                        <span class="label-text">Figma Access Token</span>
+                        <span class="label-required">*</span>
+                    </label>
+                    <input 
+                        type="password" 
+                        id="figmaToken" 
+                        name="figmaToken" 
+                        class="form-input"
+                        placeholder="figd_••••••••••••••••••••••••"
+                        required
+                    >
+                    <span class="input-hint">
+                        Get your token from 
+                        <a href="https://www.figma.com/developers/api#access-tokens" target="_blank" class="link">
+                            Figma Settings
+                        </a>
+                    </span>
+                </div>
+
+
+
+
+
+                <div class="form-group">
+                    <label for="reportFile" class="form-label">
+                        <span class="label-text">Additional Report File</span>
+                        <span class="label-optional">(Optional)</span>
+                    </label>
+                    <input
+                        type="file"
+                        id="reportFile"
+                        name="reportFile"
+                        class="form-input"
+                        accept=".pdf,.ppt,.pptx,.doc,.docx,.txt,.json,.md,.csv,.xlsx,.xls"
+                    >
+                    <span class="input-hint">Upload any report file (PDF, PPT, DOC, TXT, etc.) to include in analysis</span>
+                </div>
+
+                <button type="submit" class="submit-button" id="submitButton">
+                    <span class="button-text">Generate PDF</span>
+                    <svg class="button-icon" width="20" height="20" viewBox="0 0 20 20" fill="none">
+                        <path d="M4 10H16M16 10L12 6M16 10L12 14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </button>
+            </form>
+
+            <!-- Loading State -->
+            <div id="loadingState" class="loading-state hidden">
+                <div class="spinner"></div>
+                <p class="loading-text">Generating your architecture PDF...</p>
+                <p class="loading-subtext">This may take a few moments</p>
+            </div>
+
+            <!-- Success State -->
+            <div id="successState" class="success-state hidden">
+                <div class="success-icon">
+                    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                        <circle cx="32" cy="32" r="32" fill="#10B981" opacity="0.1"/>
+                        <path d="M20 32L28 40L44 24" stroke="#10B981" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <h2 class="success-title">PDF Generated Successfully!</h2>
+                <p class="success-message" id="successMessage"></p>
+                <div class="button-group">
+                    <a id="downloadButton" href="#" class="download-button" download>
+                        <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+                            <path d="M10 3V13M10 13L6 9M10 13L14 9M3 17H17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Download PDF
+                    </a>
+                    <button id="generateAnotherButton" class="secondary-button">
+                        Generate Another
+                    </button>
+                </div>
+            </div>
+
+            <!-- Error State -->
+            <div id="errorState" class="error-state hidden">
+                <div class="error-icon">
+                    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                        <circle cx="32" cy="32" r="32" fill="#EF4444" opacity="0.1"/>
+                        <path d="M32 20V36M32 44V44.01" stroke="#EF4444" stroke-width="4" stroke-linecap="round"/>
+                    </svg>
+                </div>
+                <h2 class="error-title">Generation Failed</h2>
+                <p class="error-message" id="errorMessage"></p>
+                <button id="tryAgainButton" class="secondary-button">
+                    Try Again
+                </button>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>Powered by FastAPI & Figma API</p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>

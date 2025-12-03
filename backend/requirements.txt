@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+requests
+reportlab
+pydantic
+python-multipart
+groq
+huggingface-hub
+python-dotenv
+slowapi
+redis

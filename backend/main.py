@@ -30,22 +30,30 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 from models.schemas import PDFGenerationRequest, PDFGenerationResponse
-from services.figma_service import FigmaService
-from services.pdf_service import PDFService
-from services.groq_service import GroqService
-from services.huggingface_service import HuggingFaceService
-from services.diagram_service import DiagramService
+from services.github_analyzer_service import GitHubAnalyzerService
+from services.github_architecture_service import GitHubArchitectureService
+from services.github_pdf_service import GitHubPDFService
 
 # Initialize rate limiter
 limiter = Limiter(key_func=get_remote_address)
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Starting System Architecture Agent API...")
+    os.makedirs("generated_pdfs", exist_ok=True)
+    yield
+    # Shutdown
+    logger.info("Shutting down System Architecture Agent API...")
+
 # Initialize FastAPI app
 app = FastAPI(
     title="System Architecture Agent API",
-    description="API for generating system architecture PDFs from Figma designs",
+    description="API for generating system architecture PDFs from GitHub repositories",
     version="1.0.0",
     docs_url="/docs" if os.getenv('ENVIRONMENT') == 'development' else None,
-    redoc_url="/redoc" if os.getenv('ENVIRONMENT') == 'development' else None
+    redoc_url="/redoc" if os.getenv('ENVIRONMENT') == 'development' else None,
+    lifespan=lifespan
 )
 
 # Add rate limiting
@@ -55,25 +63,20 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Add security middleware
 app.add_middleware(
     TrustedHostMiddleware, 
-    allowed_hosts=["localhost", "127.0.0.1", "*.yourdomain.com"]
+    allowed_hosts=["localhost", "127.0.0.1", "*.onrender.com", "*.yourdomain.com"]
 )
 
 # Configure CORS for production
 allowed_origins = os.getenv('ALLOWED_ORIGINS', 'http://localhost:3000,http://127.0.0.1:3000').split(',')
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
-    allow_methods=["GET", "POST"],
+    allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["*"],
 )
 
-# Initialize services
-figma_service = FigmaService()
-pdf_service = PDFService(output_dir="generated_pdfs")
-
-# Create generated_pdfs directory if it doesn't exist
-os.makedirs("generated_pdfs", exist_ok=True)
+# Initialize services - only GitHub services needed
 
 # Mount static files for PDF downloads
 app.mount("/pdfs", StaticFiles(directory="generated_pdfs"), name="pdfs")
@@ -87,7 +90,8 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "health": "/api/health",
-            "generate_pdf": "/api/generate-pdf (POST)",
+            "generate_github_architecture": "/api/generate-github-architecture (POST)",
+
             "download": "/api/download/{filename} (GET)"
         }
     }
@@ -133,229 +137,212 @@ async def health_check(request: Request):
         }
 
 
-@app.post("/api/generate-pdf", response_model=PDFGenerationResponse)
-@limiter.limit("5/minute")  # Rate limit: 5 requests per minute
-async def generate_pdf(
+@app.post("/api/generate-github-architecture", response_model=PDFGenerationResponse)
+@limiter.limit("3/minute")  # Rate limit: 3 requests per minute (GitHub cloning is resource intensive)
+async def generate_github_architecture(
     request: Request,
-    figma_link: str = Form(..., min_length=10, max_length=500),
-    figma_token: str = Form(..., min_length=10, max_length=200),
-    report_file: Optional[UploadFile] = File(None)
+    github_link: str = Form(..., min_length=10, max_length=500),
+    github_token: str = Form("", min_length=0, max_length=200),  # Optional GitHub token
+    prd_document: Optional[UploadFile] = File(None)
 ):
-    """Generate PDF from Figma design with comprehensive validation"""
+    """Generate comprehensive system architecture PDF from GitHub repository and optional PRD"""
     client_ip = get_remote_address(request)
-    logger.info(f"PDF generation request from {client_ip} for Figma link: {figma_link[:50]}...")
-    """
-    Generate enhanced PDF from Figma design with AI analysis
-
-    Args:
-        request: PDFGenerationRequest containing figma_link, figma_token, groq_api_key, and optional report_data
-
-    Returns:
-        PDFGenerationResponse with success status and PDF download URL
-    """
+    logger.info(f"GitHub architecture generation request from {client_ip} for repo: {github_link[:50]}...")
+    
     try:
-        # Validate and handle uploaded file
-        report_data = None
-        if report_file:
+        # Validate GitHub URL
+        if not ('github.com' in github_link or 'gitlab.com' in github_link):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid repository URL. Please provide a valid GitHub or GitLab URL."
+            )
+        
+        # Process PRD document if provided
+        prd_content = None
+        if prd_document:
             # Security validations
-            if report_file.size > 10 * 1024 * 1024:  # 10MB limit
+            if prd_document.size > 10 * 1024 * 1024:  # 10MB limit
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail="File size exceeds 10MB limit"
+                    detail="PRD file size exceeds 10MB limit"
                 )
             
             allowed_types = {
                 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                'application/vnd.ms-powerpoint', 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-                'text/plain', 'application/json', 'text/markdown', 'text/csv'
+                'text/plain', 'text/markdown', 'application/json'
             }
             
-            if report_file.content_type not in allowed_types:
-                logger.warning(f"Unsupported file type: {report_file.content_type}")
+            if prd_document.content_type not in allowed_types:
+                logger.warning(f"Unsupported PRD file type: {prd_document.content_type}")
             
             try:
-                file_content = await report_file.read()
-                report_data = {
-                    "filename": report_file.filename[:100],  # Limit filename length
-                    "content_type": report_file.content_type,
-                    "size": len(file_content),
-                    "content": file_content.decode('utf-8', errors='ignore')[:2000]  # First 2000 chars
-                }
-                logger.info(f"File processed: {report_file.filename} ({len(file_content)} bytes)")
+                file_content = await prd_document.read()
+                # Don't decode here - let the document extractor handle it
+                prd_content = None  # Will be set by document extraction
+                logger.info(f"📝 PRD document received: {prd_document.filename} ({len(file_content)} bytes)")
+                
+                # Handle all document types using GitHubPDFService
+                if (prd_document.content_type in ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'] or 
+                    prd_document.filename.lower().endswith(('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xlsx', '.xls'))):
+                    logger.info(f"📝 Document file detected: {prd_document.filename}, attempting text extraction...")
+                    try:
+                        github_pdf_service = GitHubPDFService()
+                        # Save the file temporarily for extraction
+                        import tempfile
+                        file_extension = os.path.splitext(prd_document.filename)[1] or '.tmp'
+                        with tempfile.NamedTemporaryFile(suffix=file_extension, delete=False) as temp_file:
+                            temp_file.write(file_content)
+                            temp_file_path = temp_file.name
+                        
+                        # Extract text using universal document reader
+                        extracted_text = github_pdf_service.extract_text_from_file(temp_file_path)
+                        if extracted_text and len(extracted_text.strip()) > 10:
+                            prd_content = extracted_text
+                            logger.info(f"✅ Document text extraction successful: {len(prd_content)} characters")
+                        else:
+                            logger.warning("⚠️ Document extraction yielded minimal content, using decoded fallback")
+                        
+                        # Clean up temp file
+                        os.unlink(temp_file_path)
+                    except Exception as doc_e:
+                        logger.warning(f"⚠️ Document text extraction failed: {str(doc_e)}, using decoded content")
+                
             except Exception as e:
-                logger.error(f"Error processing uploaded file: {str(e)}")
-                report_data = {"filename": report_file.filename, "error": "Could not process file"}
+                logger.error(f"Error processing PRD document: {str(e)}")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Could not process PRD document. Please ensure it's a valid text file."
+                )
         
-        # Parse Figma key from link
+        # Initialize GitHub architecture service
+        logger.info("🔍 Initializing GitHub architecture analysis...")
+        github_arch_service = GitHubArchitectureService()
+        
+        # Generate comprehensive architecture
+        logger.info("📊 Analyzing repository and generating architecture...")
         try:
-            figma_key = figma_service.parse_figma_key(figma_link)
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
-            )
-
-        # Fetch Figma data
-        try:
-            figma_data = figma_service.fetch_figma_data(figma_key, figma_token)
-        except requests.HTTPError as e:
-            # Handle specific HTTP errors from Figma API
-            error_str = str(e)
-            if "429" in error_str or "Too Many Requests" in error_str:
-                status_code = status.HTTP_429_TOO_MANY_REQUESTS
-            elif "403" in error_str or "Forbidden" in error_str:
-                status_code = status.HTTP_403_FORBIDDEN
-            elif "401" in error_str or "Unauthorized" in error_str:
-                status_code = status.HTTP_401_UNAUTHORIZED
-            elif "404" in error_str or "Not Found" in error_str:
-                status_code = status.HTTP_404_NOT_FOUND
-            else:
-                status_code = status.HTTP_401_UNAUTHORIZED
+            print(f"🔍 Starting analysis for: {github_link}")
+            print(f"🔑 Token provided: {bool(github_token)}")
+            print(f"📄 PRD provided: {bool(prd_content)}")
             
-            logger.error(f"Figma API error: {error_str}")
-            raise HTTPException(
-                status_code=status_code,
-                detail=error_str
+            # Get repository analysis for AI-powered diagrams
+            repo_analysis = github_arch_service.github_analyzer.analyze_repository(
+                github_link, 
+                github_token if github_token else None
             )
-        except ValueError as e:
-            # Handle validation errors (e.g., empty token)
-            logger.error(f"Figma token validation error: {str(e)}")
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=str(e)
+            
+            architecture = github_arch_service.generate_architecture_from_github(
+                github_url=github_link,
+                github_token=github_token if github_token else None,
+                prd_content=prd_content
+            )
+            
+            print(f"✅ Architecture generated successfully")
+            print(f"📊 API Endpoints: {architecture.api_documentation.get('total_endpoints', 0)}")
+            components_count = architecture.frontend_architecture.get('components', {}).get('total_components', 0)
+            services_count = architecture.backend_architecture.get('services', {}).get('total_services', 0)
+            languages_count = len(architecture.tech_stack_summary.get('languages', []))
+            
+            print(f"🏗️ Components: {components_count}")
+            print(f"🔧 Services: {services_count}")
+            print(f"💻 Languages: {languages_count}")
+        except Exception as e:
+            error_msg = str(e)
+            if "Repository cloning failed" in error_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Could not access repository. Please check the URL and ensure it's public or provide a valid token. Error: {error_msg}"
+                )
+            elif "Authentication" in error_msg or "403" in error_msg:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Repository access denied. Please provide a valid GitHub token for private repositories."
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Architecture analysis failed: {error_msg}"
+                )
+        
+        # Generate professional PDF
+        logger.info("📄 Generating comprehensive architecture PDF...")
+        logger.info(f"📝 PRD content status: {'Provided' if prd_content else 'Not provided'}")
+        if prd_content:
+            logger.info(f"📝 PRD content length: {len(prd_content)} characters")
+            logger.info(f"📝 PRD content sample: {prd_content[:300]}...")
+        
+        github_pdf_service = GitHubPDFService(output_dir="generated_pdfs")
+        
+        try:
+            # Parse PRD content to extract product name and other details
+            prd_analysis = None
+            if prd_content:
+                # Parse PRD content to extract structured information including product name
+                prd_analysis = github_pdf_service.parse_prd_content(prd_content)
+                logger.info(f"📝 PRD parsed - Product: {prd_analysis.get('product_name', 'Unknown')}")
+                logger.info(f"📝 PRD features: {len(prd_analysis.get('features', []))}")
+                logger.info(f"📝 PRD API endpoints: {len(prd_analysis.get('api_endpoints', []))}")
+            
+            pdf_path = github_pdf_service.generate_architecture_pdf(
+                architecture=architecture,
+                github_url=github_link,
+                prd_included=prd_content is not None,
+                repo_analysis=repo_analysis,
+                prd_content=prd_content  # Pass original content for internal parsing
             )
         except Exception as e:
-            # Handle other unexpected errors
-            logger.error(f"Unexpected error fetching Figma data: {traceback.format_exc()}")
+            logger.error(f"PDF generation failed: {str(e)}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to fetch Figma data. Please check your access token and file permissions. Error: {str(e)}"
+                detail=f"PDF generation failed: {str(e)}"
             )
-
-        # Extract data from Figma
-        document = figma_data.get('document')
-        if not document:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Invalid Figma data structure: missing document"
-            )
-
-        fonts = figma_service.extract_fonts(document)
-        texts = figma_service.extract_texts(document)
-        components = figma_service.extract_components(figma_data.get('components', {}))
-        styles = figma_service.extract_styles(figma_data.get('styles', {}))
-
-        # Get API keys from environment variables
-        groq_api_key = os.getenv('GROQ_API_KEY')
-        huggingface_api_key = os.getenv('HUGGINGFACE_API_KEY')
         
-        # AI analysis with environment API keys
-        # Priority: Groq > Hugging Face
-        ai_analysis = None
-        ai_provider = None
-
-        if groq_api_key:
-            try:
-                print("🤖 Initializing Groq analysis...")
-                groq_service = GroqService(groq_api_key)
-
-                print("📊 Analyzing design with Groq...")
-                ai_analysis = groq_service.analyze_complete_design(figma_data)
-                ai_provider = "Groq Llama 3.3 70B"
-
-            except Exception as e:
-                print(f"Groq analysis error: {str(e)}")
-                # Try Hugging Face as fallback
-                if huggingface_api_key:
-                    try:
-                        print("🤖 Falling back to Hugging Face analysis...")
-                        huggingface_service = HuggingFaceService(huggingface_api_key)
-                        ai_analysis = huggingface_service.analyze_complete_design(figma_data)
-                        ai_provider = "Hugging Face DialoGPT"
-                    except Exception as hf_e:
-                        print(f"Hugging Face fallback error: {str(hf_e)}")
-
-        elif huggingface_api_key:
-            try:
-                print("🤖 Initializing Hugging Face analysis...")
-                huggingface_service = HuggingFaceService(huggingface_api_key)
-
-                print("📊 Analyzing design with Hugging Face...")
-                ai_analysis = huggingface_service.analyze_complete_design(figma_data)
-                ai_provider = "Hugging Face DialoGPT"
-
-            except Exception as e:
-                print(f"Hugging Face analysis error: {str(e)}")
-
-        if ai_analysis:
-            # Generate ASCII architecture diagram
-            print("🎨 Generating ASCII system architecture diagram...")
-            if groq_api_key:
-                llm_service = GroqService(groq_api_key)
-            elif huggingface_api_key:
-                llm_service = HuggingFaceService(huggingface_api_key)
-            else:
-                llm_service = None
-                
-            diagram_service = DiagramService(llm_service=llm_service)
-            ascii_diagram = diagram_service.generate_architecture_diagram(
-                figma_link=figma_link,
-                figma_data=figma_data,
-                ai_analysis=ai_analysis
-            )
-            
-            # Generate enhanced PDF with AI insights and ASCII diagram
-            print("📄 Generating enhanced PDF report...")
-            pdf_path = pdf_service.generate_enhanced_pdf(
-                figma_data=figma_data,
-                gemini_analysis=ai_analysis,
-                fonts=fonts,
-                texts=texts,
-                components=components,
-                styles=styles,
-                ascii_diagram=ascii_diagram
-            )
-
-            message = f"Enhanced PDF with AI analysis and ASCII architecture diagram ({ai_provider}) generated successfully"
-        else:
-            # Fallback to basic PDF generation without AI analysis
-            print("📄 Generating basic PDF report (no AI analysis)...")
-            project_structure = figma_service.get_project_structure(document)
-            features = figma_service.get_features(document)
-
-            pdf_path = pdf_service.generate_pdf(
-                figma_data=figma_data,
-                report_data=report_data,
-                fonts=fonts,
-                texts=texts,
-                components=components,
-                styles=styles,
-                project_structure=project_structure,
-                features=features
-            )
-
-            message = "Basic PDF generated successfully (AI analysis unavailable - check API keys in environment)"
-
-        # Get filename
+        # Get filename and URL
         pdf_filename = os.path.basename(pdf_path)
         pdf_url = f"/api/download/{pdf_filename}"
-
-        return PDFGenerationResponse(
-            success=True,
-            message=message,
-            pdf_url=pdf_url,
-            pdf_filename=pdf_filename
-        )
-
+        
+        # Prepare response
+        response_data = {
+            "success": True,
+            "message": f"GitHub architecture analysis completed successfully. Repository analyzed with {architecture.project_info.get('analysis_scope', {}).get('total_files_analyzed', 0)} files.",
+            "pdf_url": pdf_url,
+            "pdf_filename": pdf_filename,
+            "architecture_analysis": {
+                "complexity_score": architecture.architecture_overview.get('complexity_score', 0),
+                "application_type": architecture.architecture_overview.get('application_type', 'Unknown'),
+                "architecture_pattern": architecture.architecture_overview.get('architecture_pattern', 'Unknown'),
+                "scalability_level": architecture.architecture_overview.get('scalability_level', 'Unknown'),
+                "technology_maturity": architecture.architecture_overview.get('technology_maturity', 'Unknown')
+            },
+            "analysis_summary": {
+                "api_endpoints": architecture.api_documentation.get('total_endpoints', 0),
+                "components": architecture.frontend_architecture.get('components', {}).get('total_components', 0),
+                "services": architecture.backend_architecture.get('services', {}).get('total_services', 0),
+                "languages": len(architecture.tech_stack_summary.get('languages', [])),
+                "complexity": f"{architecture.architecture_overview.get('complexity_score', 0)}/10",
+                "recommendations": len(architecture.recommendations) if hasattr(architecture, 'recommendations') and architecture.recommendations else 0,
+                "architecture_pattern": architecture.architecture_overview.get('architecture_pattern', 'Unknown'),
+                "application_type": architecture.architecture_overview.get('application_type', 'Unknown'),
+                "scalability_level": architecture.architecture_overview.get('scalability_level', 'Unknown'),
+                "technology_maturity": architecture.architecture_overview.get('technology_maturity', 'Unknown')
+            }
+        }
+        
+        logger.info(f"✅ GitHub architecture PDF generated successfully: {pdf_filename}")
+        return PDFGenerationResponse(**response_data)
+        
     except HTTPException:
         raise
     except Exception as e:
-        # Log the full traceback for debugging
-        logger.error(f"Unexpected error in PDF generation: {traceback.format_exc()}")
+        logger.error(f"Unexpected error in GitHub architecture generation: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"An unexpected error occurred: {str(e)}"
+            detail=f"An unexpected error occurred during architecture analysis: {str(e)}"
         )
+
+
+# Figma PDF generation endpoint removed - only GitHub architecture generation is supported
 
 
 @app.get("/api/download/{filename}")

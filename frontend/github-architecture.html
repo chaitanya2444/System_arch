@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GitHub Architecture Generator - Amazon Q</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #2E86AB 0%, #A23B72 100%);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .header p {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-bottom: 20px;
+        }
+
+        .badge {
+            display: inline-block;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .form-container {
+            padding: 40px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #2d3748;
+            font-size: 1rem;
+        }
+
+        .form-group input[type="text"],
+        .form-group input[type="url"] {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e2e8f0;
+            border-radius: 10px;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #2E86AB;
+            background: white;
+            box-shadow: 0 0 0 3px rgba(46, 134, 171, 0.1);
+        }
+
+        .file-upload {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+        }
+
+        .file-upload input[type="file"] {
+            position: absolute;
+            opacity: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        .file-upload-label {
+            display: block;
+            padding: 15px;
+            border: 2px dashed #cbd5e0;
+            border-radius: 10px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: #f7fafc;
+        }
+
+        .file-upload-label:hover {
+            border-color: #2E86AB;
+            background: #edf2f7;
+        }
+
+        .file-upload-label i {
+            font-size: 2rem;
+            color: #a0aec0;
+            margin-bottom: 10px;
+            display: block;
+        }
+
+        .file-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #e6fffa;
+            border-radius: 8px;
+            color: #234e52;
+            font-size: 0.9rem;
+        }
+
+        .generate-btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, #2E86AB 0%, #A23B72 100%);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .generate-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(46, 134, 171, 0.3);
+        }
+
+        .generate-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 30px;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2E86AB;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .result {
+            display: none;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .success {
+            background: #f0fff4;
+            border-left: 5px solid #38a169;
+        }
+
+        .error {
+            background: #fed7d7;
+            border-left: 5px solid #e53e3e;
+        }
+
+        .download-btn {
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 30px;
+            background: #38a169;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .download-btn:hover {
+            background: #2f855a;
+            transform: translateY(-2px);
+        }
+
+        .features {
+            background: #f8fafc;
+            padding: 30px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .features h3 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            text-align: center;
+            font-size: 1.3rem;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+
+        .feature-item {
+            text-align: center;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+        }
+
+        .feature-item i {
+            font-size: 2rem;
+            color: #2E86AB;
+            margin-bottom: 10px;
+        }
+
+        .feature-item h4 {
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 1rem;
+        }
+
+        .feature-item p {
+            color: #718096;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .help-text {
+            font-size: 0.9rem;
+            color: #718096;
+            margin-top: 5px;
+            line-height: 1.4;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fab fa-github"></i> GitHub Architecture Generator</h1>
+            <p>Powered by Amazon Q - Generate professional system architecture PDFs from any GitHub repository</p>
+            <div class="badge">
+                <i class="fas fa-robot"></i> AI-Powered Analysis
+            </div>
+        </div>
+
+        <div class="form-container">
+            <form id="architectureForm">
+                <div class="form-group">
+                    <label for="githubLink">
+                        <i class="fab fa-github"></i> GitHub Repository URL *
+                    </label>
+                    <input type="url" id="githubLink" name="githubLink"
+                        placeholder="https://github.com/username/repository" required>
+                    <div class="help-text">
+                        Enter the URL of any public GitHub repository. For private repositories, provide a GitHub token
+                        below.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="githubToken">
+                        <i class="fas fa-key"></i> GitHub Token (Optional)
+                    </label>
+                    <input type="text" id="githubToken" name="githubToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+                    <div class="help-text">
+                        Required for private repositories. Generate a personal access token in GitHub Settings →
+                        Developer settings → Personal access tokens.
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="prdDocument">
+                        <i class="fas fa-file-alt"></i> PRD Document (Optional)
+                    </label>
+                    <div class="file-upload">
+                        <input type="file" id="prdDocument" name="prdDocument" accept=".txt,.md,.pdf,.doc,.docx,.json">
+                        <label for="prdDocument" class="file-upload-label">
+                            <i class="fas fa-cloud-upload-alt"></i>
+                            <div>Click to upload PRD document</div>
+                            <div style="font-size: 0.8rem; margin-top: 5px; opacity: 0.7;">
+                                Supports: TXT, MD, PDF, DOC, DOCX, JSON (Max 10MB)
+                            </div>
+                        </label>
+                    </div>
+                    <div id="fileInfo" class="file-info" style="display: none;"></div>
+                    <div class="help-text">
+                        Upload a Product Requirements Document to enhance the architecture analysis with business
+                        context.
+                    </div>
+                </div>
+
+                <button type="submit" class="generate-btn" id="generateBtn">
+                    <i class="fas fa-magic"></i> Generate Architecture PDF
+                </button>
+            </form>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <h3>Analyzing Repository...</h3>
+            <p>This may take a few minutes depending on repository size</p>
+            <div style="margin-top: 20px; font-size: 0.9rem; color: #718096;">
+                <div>🔍 Cloning repository...</div>
+                <div>📊 Analyzing code structure...</div>
+                <div>🏗️ Generating architecture...</div>
+                <div>📄 Creating PDF document...</div>
+            </div>
+        </div>
+
+        <div class="result" id="result">
+            <div id="resultContent"></div>
+        </div>
+
+        <div class="features">
+            <h3>🚀 What You Get</h3>
+            <div class="feature-grid">
+                <div class="feature-item">
+                    <i class="fas fa-sitemap"></i>
+                    <h4>Complete Architecture</h4>
+                    <p>Frontend, backend, API endpoints, and database schema analysis</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fas fa-code"></i>
+                    <h4>Code Analysis</h4>
+                    <p>Automatic detection of frameworks, patterns, and technologies</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fas fa-shield-alt"></i>
+                    <h4>Security Review</h4>
+                    <p>Authentication, authorization, and security best practices</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fas fa-chart-line"></i>
+                    <h4>Recommendations</h4>
+                    <p>AI-powered suggestions for improvements and optimizations</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fas fa-file-pdf"></i>
+                    <h4>Professional PDF</h4>
+                    <p>Comprehensive documentation ready for stakeholders</p>
+                </div>
+                <div class="feature-item">
+                    <i class="fas fa-business-time"></i>
+                    <h4>Business Alignment</h4>
+                    <p>Maps technical implementation to business requirements</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('architectureForm');
+        const loading = document.getElementById('loading');
+        const result = document.getElementById('result');
+        const generateBtn = document.getElementById('generateBtn');
+        const fileInput = document.getElementById('prdDocument');
+        const fileInfo = document.getElementById('fileInfo');
+
+        // File upload handling
+        fileInput.addEventListener('change', function (e) {
+            const file = e.target.files[0];
+            if (file) {
+                fileInfo.style.display = 'block';
+                fileInfo.innerHTML = `
+                    <i class="fas fa-file"></i> 
+                    <strong>${file.name}</strong> (${(file.size / 1024 / 1024).toFixed(2)} MB)
+                `;
+            } else {
+                fileInfo.style.display = 'none';
+            }
+        });
+
+        // Form submission
+        form.addEventListener('submit', async function (e) {
+            e.preventDefault();
+
+            const formData = new FormData();
+            formData.append('github_link', document.getElementById('githubLink').value);
+            formData.append('github_token', document.getElementById('githubToken').value);
+
+            if (fileInput.files[0]) {
+                formData.append('prd_document', fileInput.files[0]);
+            }
+
+            // Show loading state
+            form.style.display = 'none';
+            loading.style.display = 'block';
+            result.style.display = 'none';
+
+            try {
+                const response = await fetch('http://localhost:8000/api/generate-github-architecture', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.success) {
+                    showSuccess(data);
+                } else {
+                    showError(data.detail || 'An error occurred during analysis');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                showError('Network error. Please check your connection and try again.');
+            }
+        });
+
+        function showSuccess(data) {
+            loading.style.display = 'none';
+            result.style.display = 'block';
+            result.className = 'result success';
+
+            const analysis = data.architecture_analysis || {};
+            const summary = data.analysis_summary || {};
+
+            document.getElementById('resultContent').innerHTML = `
+                <h3><i class="fas fa-check-circle"></i> Architecture Analysis Complete!</h3>
+                <p style="font-size: 1.1rem; margin: 20px 0;">${data.message}</p>
+                
+                <div style="background: #e6fffa; border-left: 4px solid #38a169; padding: 20px; border-radius: 8px; margin: 20px 0;">
+                    <p style="color: #2c7a7b; margin: 0;"><i class="fas fa-info-circle"></i> <strong>Your comprehensive architecture report is ready!</strong></p>
+                    <p style="color: #2c7a7b; margin: 10px 0 0 0; font-size: 0.95rem;">The PDF includes detailed analysis, visual diagrams, API documentation, and architectural recommendations.</p>
+                </div>
+                
+                <a href="http://localhost:8000${data.pdf_url}" class="download-btn" target="_blank">
+                    <i class="fas fa-download"></i> Download Architecture PDF
+                </a>
+                
+                <div style="margin-top: 20px;">
+                    <button onclick="resetForm()" style="background: #718096; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                        <i class="fas fa-redo"></i> Analyze Another Repository
+                    </button>
+                </div>
+            `;
+        }
+
+        function showError(message) {
+            loading.style.display = 'none';
+            result.style.display = 'block';
+            result.className = 'result error';
+
+            document.getElementById('resultContent').innerHTML = `
+                <h3><i class="fas fa-exclamation-triangle"></i> Analysis Failed</h3>
+                <p>${message}</p>
+                <div style="margin-top: 20px;">
+                    <button onclick="resetForm()" style="background: #e53e3e; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer;">
+                        <i class="fas fa-redo"></i> Try Again
+                    </button>
+                </div>
+            `;
+        }
+
+        function resetForm() {
+            form.style.display = 'block';
+            loading.style.display = 'none';
+            result.style.display = 'none';
+            form.reset();
+            fileInfo.style.display = 'none';
+        }
+    </script>
+</body>
+
+</html>

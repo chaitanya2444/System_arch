@@ -196,7 +196,89 @@ Edit `frontend/styles.css` to customize:
 - Ensure you have read access to the Figma file
 - Check backend logs for detailed error messages
 
+## 🚀 Deploying to Render
+
+### Prerequisites
+- GitHub account
+- Render account (free tier available at [render.com](https://render.com))
+- Your code pushed to a GitHub repository
+
+### Deployment Steps
+
+1. **Push your code to GitHub**:
+   ```bash
+   git add .
+   git commit -m "Prepare for Render deployment"
+   git push origin main
+   ```
+
+2. **Create a new Web Service on Render**:
+   - Go to [Render Dashboard](https://dashboard.render.com/)
+   - Click "New +" → "Web Service"
+   - Connect your GitHub repository
+   - Configure the service:
+     - **Name**: `system-architecture-backend` (or your preferred name)
+     - **Region**: Choose closest to your users
+     - **Branch**: `main`
+     - **Root Directory**: `backend`
+     - **Runtime**: `Python 3`
+     - **Build Command**: `bash ../build.sh`
+     - **Start Command**: `gunicorn main:app --workers 2 --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --timeout 120`
+
+3. **Set Environment Variables** in Render Dashboard:
+   - `ENVIRONMENT` = `production`
+   - `GROQ_API_KEY` = `your_groq_api_key`
+   - `HUGGINGFACE_API_KEY` = `your_huggingface_api_key`
+   - `ALLOWED_ORIGINS` = `*` (or your specific frontend URL)
+
+4. **Deploy**:
+   - Click "Create Web Service"
+   - Render will automatically build and deploy your application
+   - Wait for deployment to complete (usually 2-5 minutes)
+
+5. **Get your backend URL**:
+   - After deployment, you'll get a URL like: `https://your-app-name.onrender.com`
+   - Test it: `https://your-app-name.onrender.com/api/health`
+
+### Update Frontend to Use Render Backend
+
+After deploying, update your local frontend to connect to the Render backend:
+
+1. Open `frontend/script.js`
+2. Change line 2:
+   ```javascript
+   const API_BASE_URL = 'https://your-app-name.onrender.com';
+   ```
+
+3. Open `frontend/github-architecture.html`
+4. Update line 434:
+   ```javascript
+   const response = await fetch('https://your-app-name.onrender.com/api/generate-github-architecture', {
+   ```
+
+5. Update line 469:
+   ```html
+   <a href="https://your-app-name.onrender.com${data.pdf_url}" class="download-btn" target="_blank">
+   ```
+
+### Important Notes
+
+- **Free Tier Limitations**: 
+  - Service spins down after 15 minutes of inactivity
+  - First request after spin-down may take 30-60 seconds
+  - Ephemeral storage (generated PDFs deleted on restart)
+  
+- **For Production**:
+  - Upgrade to paid plan for persistent storage
+  - Consider using cloud storage (S3, GCS) for PDFs
+  - Update `ALLOWED_ORIGINS` to your specific frontend domain
+
+- **Monitoring**:
+  - View logs in Render Dashboard → Your Service → Logs
+  - Check health: `https://your-app-name.onrender.com/api/health`
+
 ## 📝 License
+
 
 This project is provided as-is for educational and personal use.
 
